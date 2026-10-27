@@ -1,0 +1,25 @@
+# Local credentials and captured portal responses (may contain personal data)
+.env
+.env.*
+!.env.example
+captures/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local Home Assistant dev config
+config/

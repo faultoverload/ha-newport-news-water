@@ -1,0 +1,54 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Newport News Waterworks",
+        "description": "Sign in with your myservices.nnww.nnva.gov account.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "verify": {
+        "title": "Verification code",
+        "description": "The portal emailed a 6-digit code to the address on your account. Enter it to finish signing in. You should only need to do this once.",
+        "data": {
+          "code": "Code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "The portal needs you to sign in again as {username}. If it asks for a code, one will be emailed to you.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the portal",
+      "invalid_auth": "Invalid username or password",
+      "invalid_code": "That code was not accepted. Check the newest email from the portal; codes expire quickly.",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This account is already configured",
+      "reauth_successful": "Re-authentication was successful"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "latest_day_usage": {
+        "name": "Latest day usage"
+      },
+      "latest_reading_date": {
+        "name": "Latest reading date"
+      },
+      "period_usage": {
+        "name": "Billing period usage"
+      },
+      "period_projected_usage": {
+        "name": "Billing period projected usage"
+      }
+    }
+  }
+}
