@@ -186,6 +186,22 @@ def parse_usage(data: Any) -> UsagePage:
     return UsagePage(reads, summary)
 
 
+def parse_monthly(data: Any) -> dict[date, float]:
+    """Parse a monthly LoadWaterUsage response into {bill month: value}."""
+    if not isinstance(data, dict):
+        return {}
+    result: dict[date, float] = {}
+    for row in data.get("objUsageGenerationResultSetTwo") or []:
+        value = _num(row.get("UsageValue"))
+        try:
+            month = date(int(row["Year"]), int(row["Month"]), 1)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if value is not None:
+            result[month] = value
+    return result
+
+
 class NNWWClient:
     """Async client for the portal. Give it its own cookie jar per account."""
 
@@ -320,15 +336,12 @@ class NNWWClient:
             if row.get("MeterNumber")
         ]
 
-    async def get_daily(
-        self, unit: Unit, end: date | None = None, meter_number: str = ""
-    ) -> UsagePage:
-        """Return up to 31 daily reads ending on ``end`` (default: most recent)."""
-        data = await self._page_method(
+    async def _load_usage(self, unit: Unit, mode: str, end: date | None, meter_number: str) -> Any:
+        return await self._page_method(
             "Usages.aspx/LoadWaterUsage",
             {
                 "Type": str(unit),
-                "Mode": "D",
+                "Mode": mode,
                 "strDate": end.strftime("%m/%d/%Y") if end else "",
                 "hourlyType": "H",
                 "seasonId": "",
@@ -340,7 +353,20 @@ class NNWWClient:
                 "isNoDashboard": True,
             },
         )
-        return parse_usage(data)
+
+    async def get_daily(
+        self, unit: Unit, end: date | None = None, meter_number: str = ""
+    ) -> UsagePage:
+        """Return up to 31 daily reads ending on ``end`` (default: most recent)."""
+        return parse_usage(await self._load_usage(unit, "D", end, meter_number))
+
+    async def get_monthly(self, unit: Unit, meter_number: str = "") -> dict[date, float]:
+        """Return billed totals keyed by the bill's month (first of the month).
+
+        These are billing periods, not calendar months; the portal gives no period
+        dates. Dollar totals here are real bill amounts, unlike the daily dollar view.
+        """
+        return parse_monthly(await self._load_usage(unit, "M", None, meter_number))
 
     async def get_daily_history(
         self, unit: Unit, start: date, end: date, meter_number: str = ""

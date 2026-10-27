@@ -14,13 +14,18 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 from yarl import URL
 
 from custom_components.newport_news_water.api import BASE_URL
+from custom_components.newport_news_water.cost import bill_month_for
 
 FAKE_USERNAME = "test.user@example.com"
 FAKE_PASSWORD = "not-a-real-password"
 FAKE_METER = "0000012345"
 FAKE_CODE = "123456"
 FAKE_CSRF = "fake-csrf-token"
-COST_PER_GALLON = 0.1337
+# The real portal's daily "dollar" view is cubic feet (gallons / 7.48); mimic that.
+COST_PER_GALLON = 1 / 7.48
+# Made-up bill: fixed charge plus a per-HCF rate.
+BILL_FIXED = 20.0
+BILL_PER_HCF = 5.0
 
 LOGIN_OK = [
     {
@@ -112,6 +117,34 @@ def usage_response(
     }
 
 
+def bills(history: dict[date, float]) -> dict[date, tuple[float, float]]:
+    """Made-up bills: {bill month: (HCF, dollars)} using the integration's assumed cycle."""
+    totals: dict[date, float] = {}
+    for day, gallons in history.items():
+        month = bill_month_for(day)
+        totals[month] = totals.get(month, 0.0) + gallons
+    # The newest period hasn't been billed yet.
+    totals.pop(max(totals), None)
+    return {
+        month: (round(g / 748.052, 2), round(BILL_FIXED + BILL_PER_HCF * g / 748.052, 2))
+        for month, g in totals.items()
+    }
+
+
+def monthly_response(history: dict[date, float], unit: str) -> dict[str, Any]:
+    """Build a monthly LoadWaterUsage payload (one row per bill)."""
+    rows = [
+        {
+            "UsageDate": month.strftime("%B %d, %Y"),
+            "Month": str(month.month),
+            "Year": str(month.year),
+            "UsageValue": str(dollars if unit == "D" else hcf),
+        }
+        for month, (hcf, dollars) in sorted(bills(history).items(), reverse=True)
+    ]
+    return {"objUsageGenerationResultSetTwo": rows, "getTentativeData": []}
+
+
 @dataclass
 class FakePortal:
     """Registers portal endpoints on an AiohttpClientMocker."""
@@ -121,6 +154,7 @@ class FakePortal:
     needs_code: bool = False
     bad_password: bool = False
     usage_calls: list[dict[str, Any]] = field(default_factory=list)
+    monthly_calls: list[dict[str, Any]] = field(default_factory=list)
     codes_sent: int = 0
 
     def register(self, mock: AiohttpClientMocker) -> None:
@@ -180,6 +214,9 @@ class FakePortal:
         return self._resp(method, url, LOGIN_OK)
 
     async def _usage(self, method: str, url: URL, data: Any) -> AiohttpClientMockResponse:
+        if data["Mode"] == "M":
+            self.monthly_calls.append(data)
+            return self._resp(method, url, monthly_response(self.history, data["Type"]))
         self.usage_calls.append(data)
         end = (
             datetime.strptime(data["strDate"], "%m/%d/%Y").date() if data["strDate"] else self.today

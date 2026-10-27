@@ -13,6 +13,7 @@ from homeassistant.components.recorder.statistics import (
 )
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -22,10 +23,12 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
     async_wait_recording_done,
 )
 
+from custom_components.newport_news_water.const import PORTAL_TZ
 from custom_components.newport_news_water.coordinator import day_start, statistic_ids
+from custom_components.newport_news_water.cost import GALLONS_PER_HCF, bill_month_for
 
 from .conftest import TODAY
-from .portal import FAKE_METER, FakePortal
+from .portal import FAKE_METER, FakePortal, bills
 
 CONSUMPTION_ID, COST_ID = statistic_ids(FAKE_METER)
 
@@ -78,25 +81,51 @@ async def test_setup_backfills_statistics_and_sensors(
     assert consumption[-1]["sum"] == pytest.approx(sum(history.values()))
     # Today's 0 placeholder is never imported.
     assert all(row["start"] < day_start(TODAY).timestamp() for row in consumption)
-    # The portal's daily dollar view is really cubic feet, so no cost is imported.
-    assert COST_ID not in stats
+
+    # Cost is estimated from the bills: each billed period's days add up to its bill.
+    fake_bills = bills(history)
+    daily_cost = {
+        dt_util.utc_from_timestamp(row["start"]).astimezone(PORTAL_TZ).date(): row["state"]
+        for row in stats[COST_ID]
+    }
+    assert set(daily_cost) == set(history)
+    for month, (_, dollars) in fake_bills.items():
+        period = [v for d, v in daily_cost.items() if bill_month_for(d) == month]
+        assert sum(period) == pytest.approx(dollars, abs=0.02 * len(period) + 0.05)
+    # Days after the last bill are priced at the last bill's rate.
+    last_month = max(fake_bills)
+    last_hcf, last_dollars = fake_bills[last_month]
+    yesterday = TODAY - timedelta(days=1)
+    assert bill_month_for(yesterday) not in fake_bills
+    assert daily_cost[yesterday] == pytest.approx(
+        history[yesterday] / GALLONS_PER_HCF * last_dollars / last_hcf, abs=0.01
+    )
+    assert stats[COST_ID][-1]["sum"] == pytest.approx(sum(daily_cost.values()))
 
     metadata = await hass.async_add_executor_job(
         partial(get_metadata, hass, statistic_ids={CONSUMPTION_ID, COST_ID})
     )
     assert metadata[CONSUMPTION_ID][1]["unit_of_measurement"] == "gal"
+    assert metadata[COST_ID][1]["unit_of_measurement"] is None
 
-    yesterday = history[TODAY - timedelta(days=1)]
-    assert (
-        float(hass.states.get("sensor.newport_news_waterworks_latest_day_usage").state) == yesterday
+    def state(key: str) -> str:
+        return hass.states.get(f"sensor.newport_news_waterworks_{key}").state
+
+    assert float(state("latest_day_usage")) == history[yesterday]
+    assert float(state("latest_day_estimated_cost")) == daily_cost[yesterday]
+    assert float(state("last_bill_amount")) == last_dollars
+    assert float(state("last_bill_usage")) == pytest.approx(last_hcf * GALLONS_PER_HCF, abs=0.1)
+    assert float(state("month_to_date_estimated_cost")) == pytest.approx(
+        sum(v for d, v in daily_cost.items() if d >= date(2026, 3, 1)), abs=0.01
+    )
+    assert float(state("projected_month_cost")) == pytest.approx(
+        2000 / GALLONS_PER_HCF * last_dollars / last_hcf, abs=0.01
     )
     assert (
         hass.states.get("sensor.newport_news_waterworks_latest_reading_date").state == "2026-03-14"
     )
-    assert (
-        float(hass.states.get("sensor.newport_news_waterworks_billing_period_usage").state) == 1000
-    )
-    assert hass.states.get("sensor.newport_news_waterworks_latest_day_cost") is None
+    assert float(state("month_to_date_usage")) == 1000
+    assert float(state("projected_month_usage")) == 2000
 
 
 async def test_refresh_rewrites_window_and_continues_sum(
@@ -125,13 +154,16 @@ async def test_refresh_rewrites_window_and_continues_sum(
     await hass.async_block_till_done()
     assert coordinator.last_update_success, coordinator.last_exception
 
-    # One page is enough to cover the 31-day refresh window.
-    assert len(portal.usage_calls) == 1
+    # Two 31-day pages cover the 62-day refresh window.
+    assert len(portal.usage_calls) == 2
     stats = await _stats(hass)
     consumption = stats[CONSUMPTION_ID]
     assert len(consumption) == len(history)
     assert consumption[-1]["start"] == day_start(TODAY).timestamp()
     assert consumption[-1]["sum"] == pytest.approx(sum(history.values()))
+    cost_rows = stats[COST_ID]
+    assert len(cost_rows) == len(history)
+    assert cost_rows[-1]["sum"] == pytest.approx(sum(r["state"] for r in cost_rows))
     by_start = {row["start"]: row for row in consumption}
     assert by_start[day_start(revised_day).timestamp()]["state"] == history[revised_day]
 
@@ -187,6 +219,10 @@ async def test_refresh_fills_long_gap(
     await hass.async_block_till_done()
     assert coordinator.last_update_success, coordinator.last_exception
 
-    consumption = (await _stats(hass))[CONSUMPTION_ID]
+    stats = await _stats(hass)
+    consumption = stats[CONSUMPTION_ID]
     assert len(consumption) == len(history) == 150
     assert consumption[-1]["sum"] == pytest.approx(sum(history.values()))
+    cost_rows = stats[COST_ID]
+    assert len(cost_rows) == len(history)
+    assert cost_rows[-1]["sum"] == pytest.approx(sum(r["state"] for r in cost_rows))

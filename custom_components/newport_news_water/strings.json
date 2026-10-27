@@ -40,14 +40,29 @@
       "latest_day_usage": {
         "name": "Latest day usage"
       },
+      "latest_day_cost": {
+        "name": "Latest day estimated cost"
+      },
       "latest_reading_date": {
         "name": "Latest reading date"
       },
-      "period_usage": {
-        "name": "Billing period usage"
+      "month_usage": {
+        "name": "Month to date usage"
       },
-      "period_projected_usage": {
-        "name": "Billing period projected usage"
+      "month_projected_usage": {
+        "name": "Projected month usage"
+      },
+      "month_cost": {
+        "name": "Month to date estimated cost"
+      },
+      "month_projected_cost": {
+        "name": "Projected month cost"
+      },
+      "last_bill_usage": {
+        "name": "Last bill usage"
+      },
+      "last_bill_cost": {
+        "name": "Last bill amount"
       }
     }
   }

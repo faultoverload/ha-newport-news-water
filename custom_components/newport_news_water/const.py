@@ -15,5 +15,7 @@ UPDATE_INTERVAL = timedelta(hours=6)
 
 # How far back the first refresh pages through daily history.
 MAX_BACKFILL_DAYS = 3 * 365
-# Days re-imported on every refresh so late or revised readings get corrected.
-REFRESH_WINDOW_DAYS = 31
+# Days re-imported on every refresh so late or revised readings get corrected, and so
+# a newly posted bill re-prices the whole period it covers (bills post after the
+# period ends, so this spans about two periods).
+REFRESH_WINDOW_DAYS = 62

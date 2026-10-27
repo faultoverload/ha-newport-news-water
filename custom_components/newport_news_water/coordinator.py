@@ -1,4 +1,4 @@
-"""Coordinator: fetches daily usage and writes it to long-term statistics."""
+"""Coordinator: fetches daily usage, estimates cost, and writes both to long-term statistics."""
 
 from __future__ import annotations
 
@@ -46,6 +46,7 @@ from .const import (
     REFRESH_WINDOW_DAYS,
     UPDATE_INTERVAL,
 )
+from .cost import GALLONS_PER_HCF, bill_rates, estimate_daily_cost, rate_for
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +60,13 @@ class NNWWData:
     meter_number: str
     latest_day: date | None
     latest_gallons: float | None
-    period_gallons: UsageSummary | None
+    latest_cost: float | None
+    month_gallons: UsageSummary | None
+    month_cost: float | None
+    month_projected_cost: float | None
+    last_bill_month: date | None
+    last_bill_gallons: float | None
+    last_bill_cost: float | None
 
 
 def day_start(day: date) -> datetime:
@@ -152,20 +159,40 @@ class NNWWCoordinator(DataUpdateCoordinator[NNWWData]):
         gallons, gallon_summary = await self.client.get_daily_history(
             Unit.GALLONS, since, yesterday, self.meter_number
         )
-        # The portal's daily "dollar" view actually reports cubic feet (gallons / 7.48),
-        # so it can't be used for cost. Cost is not imported until there's a reliable
-        # source (the monthly dollar view looks correct).
-        cost: dict[date, float] = {}
+        # The portal's daily "dollar" view actually reports cubic feet, so daily cost
+        # is estimated from the monthly bills instead (see cost.py).
+        bill_hcf = await self.client.get_monthly(Unit.HCF, self.meter_number)
+        bill_dollars = await self.client.get_monthly(Unit.DOLLARS, self.meter_number)
+        rates = bill_rates(bill_hcf, bill_dollars)
+        cost = estimate_daily_cost(gallons, rates)
 
         if gallons:
             await self._import_statistics(consumption_id, cost_id, gallons, cost)
 
         latest_day = max(gallons) if gallons else None
+        this_month = yesterday.replace(day=1)
+        month_days = [d for d in cost if d >= this_month]
+        rate = rate_for(yesterday, rates)
+        projected = gallon_summary.projected if gallon_summary else None
+        last_bill = max(bill_dollars) if bill_dollars else None
+        last_bill_hcf = bill_hcf.get(last_bill) if last_bill else None
         return NNWWData(
             meter_number=self.meter_number,
             latest_day=latest_day,
             latest_gallons=gallons.get(latest_day) if latest_day else None,
-            period_gallons=gallon_summary,
+            latest_cost=cost.get(latest_day) if latest_day else None,
+            month_gallons=gallon_summary,
+            month_cost=round(sum(cost[d] for d in month_days), 2) if month_days else None,
+            month_projected_cost=(
+                round(projected / GALLONS_PER_HCF * rate, 2)
+                if projected is not None and rate is not None
+                else None
+            ),
+            last_bill_month=last_bill,
+            last_bill_gallons=(
+                round(last_bill_hcf * GALLONS_PER_HCF, 1) if last_bill_hcf is not None else None
+            ),
+            last_bill_cost=bill_dollars.get(last_bill) if last_bill else None,
         )
 
     async def _import_statistics(

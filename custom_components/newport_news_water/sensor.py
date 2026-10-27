@@ -1,7 +1,9 @@
 """Sensors for Newport News Waterworks.
 
 Daily history goes into long-term statistics (see coordinator). These sensors show
-the latest day and the billing-period summary for dashboards and automations.
+the latest day, the current month and the last bill for dashboards and automations.
+Daily and monthly costs are estimates from bill rates (see cost.py); the last bill
+amount is the portal's billed figure.
 """
 
 from __future__ import annotations
@@ -43,6 +45,15 @@ def _gallons(**kwargs) -> dict:
     }
 
 
+def _dollars(**kwargs) -> dict:
+    return {
+        "device_class": SensorDeviceClass.MONETARY,
+        "native_unit_of_measurement": "USD",
+        "suggested_display_precision": 2,
+        **kwargs,
+    }
+
+
 SENSORS: tuple[NNWWSensorDescription, ...] = (
     NNWWSensorDescription(
         key="latest_day_usage",
@@ -51,22 +62,52 @@ SENSORS: tuple[NNWWSensorDescription, ...] = (
         **_gallons(),
     ),
     NNWWSensorDescription(
+        key="latest_day_cost",
+        translation_key="latest_day_cost",
+        value_fn=lambda d: d.latest_cost,
+        **_dollars(),
+    ),
+    NNWWSensorDescription(
         key="latest_reading_date",
         translation_key="latest_reading_date",
         device_class=SensorDeviceClass.DATE,
         value_fn=lambda d: d.latest_day,
     ),
     NNWWSensorDescription(
-        key="period_usage",
-        translation_key="period_usage",
-        value_fn=lambda d: d.period_gallons.so_far if d.period_gallons else None,
+        key="month_usage",
+        translation_key="month_usage",
+        value_fn=lambda d: d.month_gallons.so_far if d.month_gallons else None,
         **_gallons(),
     ),
     NNWWSensorDescription(
-        key="period_projected_usage",
-        translation_key="period_projected_usage",
-        value_fn=lambda d: d.period_gallons.projected if d.period_gallons else None,
+        key="month_projected_usage",
+        translation_key="month_projected_usage",
+        value_fn=lambda d: d.month_gallons.projected if d.month_gallons else None,
         **_gallons(),
+    ),
+    NNWWSensorDescription(
+        key="month_cost",
+        translation_key="month_cost",
+        value_fn=lambda d: d.month_cost,
+        **_dollars(),
+    ),
+    NNWWSensorDescription(
+        key="month_projected_cost",
+        translation_key="month_projected_cost",
+        value_fn=lambda d: d.month_projected_cost,
+        **_dollars(),
+    ),
+    NNWWSensorDescription(
+        key="last_bill_usage",
+        translation_key="last_bill_usage",
+        value_fn=lambda d: d.last_bill_gallons,
+        **_gallons(),
+    ),
+    NNWWSensorDescription(
+        key="last_bill_cost",
+        translation_key="last_bill_cost",
+        value_fn=lambda d: d.last_bill_cost,
+        **_dollars(),
     ),
 )
 

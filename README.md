@@ -3,7 +3,7 @@
 [![hacs][hacs-badge]][hacs]
 [![Validate][validate-badge]][validate]
 
-A custom integration that pulls your daily water usage from the
+A custom integration that pulls your daily water usage and estimated cost from the
 [Newport News Waterworks customer portal](https://myservices.nnww.nnva.gov/NNWW/)
 into Home Assistant, so you can track water in the
 [Energy dashboard](https://www.home-assistant.io/docs/energy/water/).
@@ -13,12 +13,14 @@ Newport News or Newport News Waterworks.
 
 ## What you get
 
-- **Long-term statistics** for daily water consumption (gallons). The first
-  refresh backfills everything the portal has (about two years). After that, each refresh
-  re-imports the last 31 days, so late or corrected readings fix themselves.
+- **Long-term statistics** for daily water consumption (gallons) and estimated cost (USD).
+  The first refresh backfills everything the portal has (about two years). After that, each
+  refresh re-imports the last 62 days, so late or corrected readings and newly posted bills
+  fix themselves.
 - **Sensors**
-  - Latest day usage, plus the date of that reading
-  - Billing period usage so far and projected usage
+  - Latest day usage and estimated cost, plus the date of that reading
+  - Month-to-date usage and estimated cost, and projected usage and cost for the month
+  - Last bill usage and amount
 
 The portal publishes a day's reading the following day, so the newest data is always from
 yesterday. The integration checks every 6 hours.
@@ -49,15 +51,23 @@ notice; open it and enter the new code that gets emailed to you.
 ## Energy dashboard
 
 **Settings → Dashboards → Energy → Water consumption → Add water source**, then choose the
-statistic **Newport News Water _meter_ consumption**.
+statistic **Newport News Water _meter_ consumption**. For cost, choose **Use an entity
+tracking the total costs** and pick **Newport News Water _meter_ cost**.
 
 The data arrives a day late, so the Energy dashboard's "today" view stays empty; use the day,
 week or month views.
 
 ## Notes
 
-- **Cost is not tracked yet.** The portal's daily "dollar" view actually reports cubic
-  feet, so it can't be used; a cost estimate based on the monthly billing totals is planned.
+- **Cost is an estimate.** The portal's daily "dollar" view actually reports cubic feet, so
+  it can't be used. Instead, each bill in the portal's monthly view gives a rate (bill amount
+  ÷ billed HCF, which spreads the fixed charge over your usage), and each day is priced at the
+  rate of the bill that covers it. The portal doesn't give billing-period dates; matching
+  bills against daily reads shows a bill for month M covers roughly the 11th of the previous
+  month through the 10th of M, so that's what the estimate assumes. Days since the last
+  bill use the last bill's rate. Over two years of one account's history the estimate came
+  within 2% of the billed total; individual months can be off by 5–25% when meter-read dates
+  shift.
 - Accounts with more than one water meter use the first meter for now.
 - Your password is stored in Home Assistant's config entry, like other cloud integrations.
   Nothing is sent anywhere except the Newport News Waterworks portal.
